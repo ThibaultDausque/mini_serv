@@ -16,6 +16,7 @@ typedef struct s_cli
 
 fd_set  rfds;
 fd_set  wfds;
+fd_set  master;
 int     maxfd = 0;
 
 int init_serv(int port)
@@ -29,10 +30,11 @@ int init_serv(int port)
         printf("socket creation failed...\n");
         exit(0);
     }
+    printf("%d\n", sockfd);
     bzero(&servaddr, sizeof(servaddr));
 
     servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = htonl(2130706433);
+    servaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     servaddr.sin_port = htons(port);
 
     if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
@@ -40,13 +42,16 @@ int init_serv(int port)
         printf("socket bind failed...\n");
         exit(0);
     }
-    if (listen(sockfd, 10) != 0)
+    if (listen(sockfd, 1024) != 0)
     {
         printf("cannot listen\n");
         exit(0);
     }
-    FD_SET(sockfd, &rfds);
-    FD_SET(sockfd, &wfds);
+    //FD_SET(sockfd, &rfds);
+    //FD_SET(sockfd, &wfds);
+    FD_SET(sockfd, &master);
+    if (sockfd > maxfd)
+        maxfd = sockfd;
     return sockfd;
 }
 
@@ -67,17 +72,14 @@ int accept_cli(int sockfd, t_cli *cli)
     {
         cli->id = i;
         printf("client %d connected.\n", i++);
-        FD_SET(cli->fd, &rfds);
-        FD_SET(cli->fd, &wfds);
-        if (cli->fd > maxfd)
-            maxfd = cli->fd;
+        FD_SET(cli->fd, &master);
     }
     return cli->fd;
 }
 
 int start_server(int sockfd)
 {
-    int     bytes = 0;
+    int     bytes;
     t_cli   cli[1024];
     int     i = 0;
     int     retval;
@@ -87,26 +89,27 @@ int start_server(int sockfd)
         i = 0;
         while (i < 1024)
         {
-            if (FD_ISSET(i, &rfds))
+            rfds = master;
+            retval = select(1024, &rfds, NULL, NULL, NULL);
+            if (i == sockfd)
             {
-                if (i == sockfd)
+                accept_cli(sockfd, &cli[i]);
+            }
+            else
+            {
+                bytes = recv(i, cli[i].buff, sizeof(cli[i].buff), 0);
+                if (bytes <= 0)
                 {
-                    accept_cli(sockfd, &cli[i]);
-                    retval = select(maxfd + 1, &rfds, &wfds, NULL, NULL);
+                    printf("client %d: disconnected.\n", cli[i].id);
+                    exit(0);
                 }
                 else
                 {
-                    bytes = recv(cli[i].fd, cli[i].buff, sizeof(cli[i].buff), 0);
-                    if (bytes <= 0)
-                    {
-                        printf("client %d: disconnected.\n", cli[i].id);
-                        exit(0);
-                    }
-                    else
-                        printf("client %d: %s\n", cli[i].id, cli[i].buff);
+                    cli[i].buff[bytes] = '\0';
+                    printf("client %d: %s\n", cli[i].id, cli[i].buff);
                 }
-                i++;
             }
+            i++;
         }
     }
     return 1;

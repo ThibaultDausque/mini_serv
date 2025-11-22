@@ -30,7 +30,6 @@ int init_serv(int port)
         printf("socket creation failed...\n");
         exit(0);
     }
-    printf("%d\n", sockfd);
     bzero(&servaddr, sizeof(servaddr));
 
     servaddr.sin_family = AF_INET;
@@ -47,9 +46,6 @@ int init_serv(int port)
         printf("cannot listen\n");
         exit(0);
     }
-    //FD_SET(sockfd, &rfds);
-    //FD_SET(sockfd, &wfds);
-    FD_SET(sockfd, &master);
     if (sockfd > maxfd)
         maxfd = sockfd;
     return sockfd;
@@ -86,30 +82,42 @@ int start_server(int sockfd)
 
     while (1)
     {
+		FD_SET(sockfd, &master);
+		FD_SET(STDIN_FILENO, &master);
+		FD_SET(STDOUT_FILENO, &master);
+		FD_SET(STDERR_FILENO, &master);
+		wfds = master;
+		printf("sockfd: %d \n in: %d\n out: %d\n err: %d\n", sockfd, STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO);
+		retval = select(1024, &wfds, NULL, NULL, NULL);
+		if (!retval)
+		{
+			printf("select() error\n");
+			exit(0);
+		}
         i = 0;
         while (i < 1024)
         {
-            rfds = master;
-            retval = select(1024, &rfds, NULL, NULL, NULL);
-            if (i == sockfd)
-            {
-                accept_cli(sockfd, &cli[i]);
-            }
-            else
-            {
-                bytes = recv(i, cli[i].buff, sizeof(cli[i].buff), 0);
-                if (bytes <= 0)
-                {
-                    printf("client %d: disconnected.\n", cli[i].id);
-                    exit(0);
-                }
-                else
-                {
-                    cli[i].buff[bytes] = '\0';
-                    printf("client %d: %s\n", cli[i].id, cli[i].buff);
-                }
-            }
-            i++;
+			if (!FD_ISSET(i, &master))
+				break ;
+			if (i == sockfd)
+			{
+				accept_cli(sockfd, &cli[i]);
+				printf("fd: %d\n", i);
+			}
+			else
+			{
+				bytes = recv(i, cli[i].buff, sizeof(cli[i].buff), 0);
+				if (bytes <= 0)
+				{
+					printf("client %d disconnected.", i);
+					exit(0);
+				}
+				else
+				{
+					printf("client %d: %s\n", i, cli[i].buff);
+				}
+			}
+			i++;
         }
     }
     return 1;

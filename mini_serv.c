@@ -1,116 +1,126 @@
-#include <stdlib.h>
-#include <stdio.h>
+#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/select.h>
 
-#define ERROR "Fatal error\n"
-
-int			servfd;
-
-typedef struct s_client {
-	int		fd;
-	int		pos;
-	char	msg[1024];
-}	t_client;
-
-t_client*	mini_serv(char* port)
+typedef struct s_cli
 {
-	struct sockaddr_in	servaddr, cliaddr;
-	int			clifd;
-	socklen_t	len = sizeof(servaddr);
-	char		tab[1024];
-	t_client	cli[1024];
-	static int	i = 0;
-	static int	k = 0;
+    char    buff[1024];
+    int     fd;
+    int     id;
+} t_cli;
 
+fd_set  rfds;
+fd_set  wfds;
+int     maxfd = 0;
 
-	servfd = socket(AF_INET, SOCK_STREAM, 0);
-	if (servfd == -1)
-	{
-		write(0, ERROR, sizeof(ERROR));
-		exit(1);
-	}
-	servaddr.sin_family = AF_INET;
-	servaddr.sin_port = htons(atoi(port));
-	servaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	if (bind(servfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) == -1)
-	{
-		write(0, ERROR, strlen(ERROR));
-		close(servfd);
-		printf("toto");
-		exit(1);
-	}
-	if (listen(servfd, 50) == -1)
-	{
-		write(0, ERROR, strlen(ERROR));
-		close(servfd);
-		exit(1);
-	}
-	cli[i].pos = k++;
-	cli[i].fd = accept(servfd, (struct sockaddr *)&cliaddr, &len);
-	i++;
-	if (clifd == -1)
-	{
-		write(0, ERROR, strlen(ERROR));
-		close(servfd);
-		exit(1);
-	}
-	else
-	{
-		sprintf(tab, "server: client %d just arrived\n", clifd);
-		write(1, tab, strlen(tab));
-	}
-	return ;
+int init_serv(int port)
+{
+    int     sockfd;
+    struct sockaddr_in  servaddr;
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd == -1)
+    {
+        printf("socket creation failed...\n");
+        exit(0);
+    }
+    bzero(&servaddr, sizeof(servaddr));
+
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = htonl(2130706433);
+    servaddr.sin_port = htons(port);
+
+    if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
+    {
+        printf("socket bind failed...\n");
+        exit(0);
+    }
+    if (listen(sockfd, 10) != 0)
+    {
+        printf("cannot listen\n");
+        exit(0);
+    }
+    FD_SET(sockfd, &rfds);
+    FD_SET(sockfd, &wfds);
+    return sockfd;
 }
 
-int	run_server(char* port)
+int accept_cli(int sockfd, t_cli *cli)
 {
-	int		clifd = -1;
-	char	buff[1024];
-	int		bytes = 0;
-	int		pos = 1;
-	t_client	*cli;
+    socklen_t           len;
+    struct sockaddr_in  client;
+    static int          i = 0;
 
-	printf("--- mini_serv ---\n");
-	printf("\n");
-	int		i;
-	while (1)
-	{
-		if (clifd == -1)
-		{
-			cli = mini_serv(port);
-		}
-		i = 0;
-		while (i < pos)
-		{
-			bytes = recv(clifd, buff, sizeof(buff) - 1, 0);
-			if (bytes <= 0 && clifd != -1)
-			{
-				char	err[30];
-				sprintf(err, "server: client %d just left\n", clifd);
-				close(clifd);
-				return 1;
-			}
-			else
-			{
-				char	tab[1024];
-				sprintf(tab, "client %d: %s\n", clifd, buff);
-				write(1, tab, strlen(tab));
-			}
-			i++;
-		}
-	}
-	close(clifd);
-	close(servfd);
-	return 1;
+    len = sizeof(cli);
+    cli->fd = accept(sockfd, (struct sockaddr *)&client, &len);
+    if (cli->fd < 0)
+    {
+        printf("server accept failed...\n");
+        exit(0);
+    }
+    else
+    {
+        cli->id = i;
+        printf("client %d connected.\n", i++);
+        FD_SET(cli->fd, &rfds);
+        FD_SET(cli->fd, &wfds);
+        if (cli->fd > maxfd)
+            maxfd = cli->fd;
+    }
+    return cli->fd;
 }
 
-int	main(int ac, char **av)
+int start_server(int sockfd)
 {
-	(void) ac;
-	char*	port = av[1];
-	run_server(port);
-	return 0;
+    int     bytes = 0;
+    t_cli   cli[1024];
+    int     i = 0;
+    int     retval;
+
+    while (1)
+    {
+        i = 0;
+        while (i < 1024)
+        {
+            if (FD_ISSET(i, &rfds))
+            {
+                if (i == sockfd)
+                {
+                    accept_cli(sockfd, &cli[i]);
+                    retval = select(maxfd + 1, &rfds, &wfds, NULL, NULL);
+                }
+                else
+                {
+                    bytes = recv(cli[i].fd, cli[i].buff, sizeof(cli[i].buff), 0);
+                    if (bytes <= 0)
+                    {
+                        printf("client %d: disconnected.\n", cli[i].id);
+                        exit(0);
+                    }
+                    else
+                        printf("client %d: %s\n", cli[i].id, cli[i].buff);
+                }
+                i++;
+            }
+        }
+    }
+    return 1;
+}
+
+int main(int ac, char **av)
+{
+    if (ac != 2)
+        return 0;
+    
+    FD_ZERO(&rfds);
+    FD_ZERO(&wfds);
+    int     port = atoi(av[1]);
+    int     sockfd = init_serv(port);
+    start_server(sockfd);
+    return 0;
 }

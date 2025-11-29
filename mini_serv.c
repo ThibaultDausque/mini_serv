@@ -1,152 +1,118 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/select.h>
+# include <stdlib.h>
+# include <stdio.h>
 
-typedef struct s_cli
-{
-    char    buff[1024];
+# define ERROR "Fatal Error"
+
+typedef struct s_cli {
     int     fd;
     int     id;
-} t_cli;
+}   t_cli;
 
-fd_set  rfds;
-fd_set  wfds;
-fd_set  master;
-int     maxfd = 0;
-
-int init_serv(int port)
-{
+typedef struct s_serv {
+    fd_set  master;
+    fd_set  rfds;
+    fd_set  wfds;
+    int     nfds;
     int     sockfd;
+}   t_serv;
+
+int init_serv(t_serv *serv, int port)
+{
     struct sockaddr_in  servaddr;
 
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == -1)
+    serv->sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (serv->sockfd == -1)
     {
-        printf("socket creation failed...\n");
+        printf("tutu");
+        write(0, ERROR, strlen(ERROR));
         exit(0);
     }
+    if (serv->sockfd > serv->nfds)
+        serv->nfds = serv->sockfd;
+    FD_SET(serv->sockfd, &serv->master);
+    FD_SET(serv->sockfd, &serv->rfds);
     bzero(&servaddr, sizeof(servaddr));
 
+    // assign IP, PORT
     servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    servaddr.sin_addr.s_addr = htonl(2130706433);
     servaddr.sin_port = htons(port);
 
-    if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
+    // Binding newly created socket to given IP and verification
+    if ((bind(serv->sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
     {
-        printf("socket bind failed...\n");
+        printf("toto");
+        write(0, ERROR, strlen(ERROR));
         exit(0);
     }
-    if (listen(sockfd, 1024) != 0)
+    if (listen(serv->sockfd, 1024) != 0)
     {
-        printf("cannot listen\n");
+        write(0, ERROR, strlen(ERROR));
         exit(0);
-    }
-    if (sockfd > maxfd)
-        maxfd = sockfd;
-    return sockfd;
-}
-
-int accept_cli(int sockfd, t_cli *cli)
-{
-    socklen_t           len;
-    struct sockaddr_in  client;
-    static int          i = 0;
-
-    len = sizeof(cli);
-    cli->fd = accept(sockfd, (struct sockaddr *)&client, &len);
-    if (cli->fd < 0)
-    {
-        printf("server accept failed...\n");
-        exit(0);
-    }
-    else
-    {
-        cli->id = i;
-        printf("client %d just arrived.\n", i++);
-        FD_SET(cli->fd, &master);
-    }
-    return cli->fd;
-}
-
-int start_server(int sockfd)
-{
-    int     bytes;
-    t_cli   cli[1024];
-    int     i = 0;
-    int     j = 0;
-    int     retval;
-
-    while (1)
-    {
-		FD_SET(sockfd, &master);
-		rfds = master;
-		retval = select(1024, &rfds, NULL, NULL, NULL);
-		if (!retval)
-		{
-			printf("select() error\n");
-			exit(0);
-		}
-        i = 0;
-        if (FD_ISSET(sockfd, &rfds))
-        {
-            if (accept_cli(sockfd, &cli[j]))
-            {
-                int     k = 0;
-                while (k != j)
-                {
-                    char    buff[1024];
-                    sprintf(buff, "client %d just arrived.\n", cli[j].id);
-                    send(cli[k].fd, buff, sizeof(buff), 0);
-                    k++;
-                }
-            }
-            j++;
-        }
-        while (i <= j)
-        {
-            if (FD_ISSET(cli[i].fd, &rfds))
-            {
-                char    buff[1024];
-                bytes = recv(cli[i].fd, buff, sizeof(buff), 0);
-                int     k = 0;
-                while (k != j)
-                {
-                    char    mess[1024];
-                    if (k != i)
-                    {
-                        sprintf(mess, "client %d: %s", cli[i].id, buff);
-                        send(cli[k].fd, mess, sizeof(mess), 0);
-                    }
-                    k++;
-                }
-                if (bytes <= 0)
-                {
-                    printf("client %d disconnected.", cli[i].id);
-                    close(cli[i].fd);
-                }
-                else
-                    printf("client %d: %s\n", i, buff);
-            }
-            i++;
-        }
     }
     return 1;
 }
 
+int accept_cli(t_serv *serv, t_cli *cli)
+{
+    struct sockaddr_in  client;
+    socklen_t   len = sizeof(client);
+    int         clifd;
+
+    clifd = accept(serv->sockfd, (struct sockaddr *)&client, &len);
+    cli->fd = clifd;
+    if (clifd < 0)
+    {
+        write(0, ERROR, strlen(ERROR));
+        exit(0);
+    }
+    else
+    {
+        if (clifd > serv->nfds)
+            serv->nfds = cli->fd;
+        cli->id = clifd - 4;
+        char    tab[1024];
+        sprintf(tab, "server: client %d arrived.\n", cli->fd);
+        // int     i = 0;
+        FD_SET(clifd, &serv->master);
+        FD_SET(clifd, &serv->rfds);
+        // while (i < cli->id)
+        // {
+        //     send(i + 4, &tab, sizeof(tab), 0);
+        //     i++;
+        // }
+    }
+    return clifd;
+}
+
 int main(int ac, char **av)
 {
+    t_serv  serv;
+    t_cli   cli[1024];
+
     if (ac != 2)
-        return 0;
-    
-    FD_ZERO(&rfds);
-    FD_ZERO(&wfds);
+        exit(0);
     int     port = atoi(av[1]);
-    int     sockfd = init_serv(port);
-    start_server(sockfd);
+    int     j = 0;
+
+    serv.nfds = 0;
+    init_serv(&serv, port);
+    while (1)
+    {
+        serv.rfds = serv.master;
+        select(serv.nfds, &serv.rfds, 0, 0, 0);
+        printf("serv socket: %d\n", serv.sockfd);
+        printf("nfds: %d\n", serv.nfds);
+        if (FD_ISSET(serv.sockfd, &serv.rfds))
+            accept_cli(&serv, &cli[j++]);
+        printf("a client joined !\n");
+    }
     return 0;
 }

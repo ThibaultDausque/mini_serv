@@ -20,37 +20,42 @@ typedef struct s_serv {
     fd_set  rfds;
 }   t_serv;
 
-int max = 0;
+int max;
 int init_serv(int port, t_serv *serv)
 {
-  int sockfd;
-  struct sockaddr_in servaddr;
+	struct sockaddr_in servaddr;
 
-  // socket create and verification
-  serv->sockfd = socket(AF_INET, SOCK_STREAM, 0);
-  if (serv->sockfd == -1)
-  {
-    printf("socket creation failed...\n");
-    exit(0);
-  }
-  else
-    printf("Socket successfully created..\n");
-  bzero(&servaddr, sizeof(servaddr));
+	// socket create and verification
+	serv->sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	if (serv->sockfd == -1)
+	{
+		printf("socket creation failed...\n");
+		exit(0);
+	}
+	else
+		printf("Socket successfully created..\n");
+	bzero(&servaddr, sizeof(servaddr));
 
-  // assign IP, PORT
-  servaddr.sin_family = AF_INET;
-  servaddr.sin_addr.s_addr = htonl(2130706433); // 127.0.0.1
-  servaddr.sin_port = htons(port);
+	// assign IP, PORT
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_addr.s_addr = htonl(2130706433); // 127.0.0.1
+	servaddr.sin_port = htons(port);
 
-  // Binding newly created socket to given IP and verification
-  if ((bind(serv->sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
-  {
-    printf("socket bind failed...\n");
-    exit(0);
-  }
-  FD_SET(serv->sockfd, &serv->master);
-  max++;
-  return serv->sockfd;
+	// Binding newly created socket to given IP and verification
+	if ((bind(serv->sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0)
+	{
+		printf("socket bind failed...\n");
+		exit(0);
+	}
+	if (listen(serv->sockfd, 1024) != 0)
+	{
+		printf("listen error\n");
+		exit(1);
+	}
+	FD_ZERO(&serv->master);
+	FD_SET(serv->sockfd, &serv->master);
+	max = serv->sockfd;
+	return serv->sockfd;
 }
 
 int accept_cli(t_cli *cli, int sockfd, t_serv *serv)
@@ -68,7 +73,7 @@ int accept_cli(t_cli *cli, int sockfd, t_serv *serv)
     else
     {
         printf("server accept client...\n");
-        max++;
+        max = cli->fd;
         FD_SET(cli->fd, &serv->master);
     }
     return cli->fd;
@@ -87,15 +92,50 @@ int main(int ac, char **av)
     int     i = 0;
     int     port = atoi(av[1]);
     int     sockfd = init_serv(port, &serv);
+	printf("max: %d\n", max);
+	max = 4;
     while (1)
     {
         serv.rfds = serv.master;
         int nfd = select(max + 1, &serv.rfds, 0, 0, 0);
-        if (FD_ISSET(serv.sockfd, &serv.rfds))
+        if (!nfd)
+		{
+			printf("fatal error\n");
+			exit(1);
+		}
+		if (FD_ISSET(serv.sockfd, &serv.rfds))
         {
             accept_cli(&cli[i], sockfd, &serv);
             cli[i].id = cli[i].fd - 4;
             i++;
         }
+		else
+		{
+			int		j = 4;
+			while (j <= max)
+			{
+				if (!FD_ISSET(j, &serv.rfds))
+				{
+					j++;
+					continue ;
+				}
+				char buff[1024];
+				int bytes = recv(j, &buff, sizeof(buff), 0);
+				buff[bytes] = '\0';
+				if (bytes <= 0)
+				{
+					printf("client %d disconnected", j - 4);
+					close(j);
+				}
+				else
+				{
+					if (buff[0] == '\n')
+						printf("client %d: \n", j - 4);
+					else
+						printf("client %d: %s", j - 4, buff);
+				}
+				j++;
+			}
+		}
     }
 }

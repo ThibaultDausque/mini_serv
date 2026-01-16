@@ -87,43 +87,51 @@ int accept_cli(int sockfd, serv_t *serv, int *clifd)
   send_to_client(tab, serv, clifd);
   return connfd;
 }
-
-char* ft_substr(char *buff, int start, int end)
+int extract_message(char **buf, char **msg)
 {
-  int   len = end - start;
-  char  *new;
+  char *newbuf;
+  int i;
 
-  new = malloc((len + 1) * sizeof(char));
-  if (!new)
-    exit(1);
-  int   i = 0;
-  while (start < end)
-    new[i++] = buff[start++];
-  new[i] = '\0';
-  return new;
-}
-
-void  ft_extract(char *buff, serv_t *serv, int *cli, int fd)
-{
-  int   i = 0;
-  int   j = 0;
-  (void) cli;
-  (void) serv;
-
-  while (buff[i])
+  *msg = 0;
+  if (*buf == 0)
+    return (0);
+  i = 0;
+  while ((*buf)[i])
   {
-    if (buff[i + 1] == '\0' || buff[i] == '\n')
+    if ((*buf)[i] == '\n')
     {
-      char *new = ft_substr(buff, j, i);
-      j = i;
-      j++;
-      char  buff[1024];
-      sprintf(buff, "client %d: %s\n", fd - 4, new);
-      ft_output(1, buff);
-      send_to_client(buff, serv, cli);
+      newbuf = calloc(1, sizeof(*newbuf) * (strlen(*buf + i + 1) + 1));
+      if (newbuf == 0)
+        return (-1);
+      strcpy(newbuf, *buf + i + 1);
+      *msg = *buf;
+      (*msg)[i + 1] = 0;
+      *buf = newbuf;
+      return (1);
     }
     i++;
   }
+  return (0);
+}
+
+char *str_join(char *buf, char *add)
+{
+  char *newbuf;
+  int len;
+
+  if (buf == 0)
+    len = 0;
+  else
+    len = strlen(buf);
+  newbuf = malloc(sizeof(*newbuf) * (len + strlen(add) + 1));
+  if (newbuf == 0)
+    return (0);
+  newbuf[0] = 0;
+  if (buf != 0)
+    strcat(newbuf, buf);
+  free(buf);
+  strcat(newbuf, add);
+  return (newbuf);
 }
 
 int main(int ac, char **av)
@@ -167,8 +175,8 @@ int main(int ac, char **av)
       {
         if (FD_ISSET(cli[j], &serv.rfds))
         {
-          char  buff[1024];
-          int   bytes = recv(cli[j], buff, sizeof(buff), 0);
+          char  *buff = NULL;
+          int   bytes = recv(cli[j], buff, sizeof(char), 0);
           buff[bytes] = '\0';
           if (bytes <= 0)
           {
@@ -181,7 +189,16 @@ int main(int ac, char **av)
             cli[j] = 0;
           }
           else
-            ft_extract(buff, &serv, cli, cli[j]);
+          {
+            char    *buf = NULL;
+            while (extract_message(&buf, &buff))
+            {
+                char    *join = NULL;
+                join = str_join(join, buf);
+                ft_output(1, join);
+                send_to_client(join, &serv, cli);
+            }
+          }
         }
         j++;
       }

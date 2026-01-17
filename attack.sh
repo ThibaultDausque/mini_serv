@@ -14,21 +14,25 @@ test=0
 compiled=0
 
 echo "Test starting..."
-# if cc -Wall -Wextra -Werror mini_serv.c -o ${OBJ}; then
-#     echo "${GREEN}project compiled"
-#     if ${OBJ} ${PORT}; then
-#         echo "server runnning on port ${PORT}..."
-#     else
-#         echo "error"
-# else
-#     echo "compilation failed"
-# fi
-
-# for ((i=0; i<100: i++)); do
-#     printf "hello world"
-# done
-printf "Hello world!" | nc localhost ${PORT}
-
-if [ ${test} -eq 0 ];then
-    echo "${GREEN}test succeed !${NC}"
+if cc -Wall -Wextra -Werror mini_serv.c -o ${OBJ}; then
+    echo "${GREEN}project compiled"
+    while true; do
+        ./serv ${PORT}
+        if [ $? -eq 0 ]; then
+            echo "server runnning on port ${PORT}..."
+        else
+            echo "error"
+        fi
+    done
+else
+    echo "compilation failed"
 fi
+
+# # for ((i=0; i<100: i++)); do
+# #     printf "hello world"
+# # done
+# printf "Hello world!" | nc localhost ${PORT}
+
+# if [ ${test} -eq 0 ];then
+#     echo "${GREEN}test succeed !${NC}"
+# fi
